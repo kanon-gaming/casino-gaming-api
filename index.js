@@ -6,6 +6,7 @@ const http = require("http");
 //HTTP
 const express = require("express");
 const app = express();
+var cors = require("cors");
 
 //SQL
 var config = {
@@ -22,6 +23,13 @@ sql
   .then((conn) => (global.conn = conn))
   .catch((err) => {});
 
+const corsOptions = {
+  origin: process.env.ORIGIN,
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+
 const bodyParser = require("body-parser");
 app.use(bodyParser.json());
 
@@ -32,40 +40,66 @@ app.get("/", (req, res, next) => {
 
 //authentication
 app.post("/login", (req, res, next) => {
-  if (req.body.user === "luiz" && req.body.password === "123") {
-    const id = 1;
-    const token = jwt.sign({ id }, process.env.SECRET, {
-      expiresIn: "7d",
-    });
-    return res.json({ auth: true, token: token });
-  }
+  let messages = [];
+  let pool = global.conn.request();
 
-  res.status(500).json({ message: "Login inválido!" });
+  pool.input("email", sql.VarChar, req.body.email);
+  pool.input("password", sql.VarChar, req.body.password);
+
+  let query =
+    "SELECT U_Id [id], U_Name [name], U_Email [email] FROM K_Users WHERE U_Email = @email AND U_Password = @password";
+
+  pool
+    .query(query)
+    .then(function (results) {
+      if (results.recordset.length > 0) {
+        let user = {
+          id: results.recordset[0].id,
+          name: results.recordset[0].name,
+          email: results.recordset[0].email,
+          token: "",
+        };
+
+        const token = jwt.sign(user, process.env.SECRET, {
+          expiresIn: "7d",
+        });
+        user.token = token;
+
+        return res.json({ user: user, messages: messages, valid: true });
+      } else {
+        messages.push("Email or password incorrect!");
+        res.status(200).json({ messages: messages, valid: false });
+      }
+    })
+    .catch(function (err) {
+      messages.push("Something happened, contact your system administrator!");
+      res.status(200).json({ messages: messages, valid: false });
+    });
 });
 
 //register
 app.post("/register", (req, res, next) => {
   //Validations
-  let erros = [];
+  let messages = [];
   if (!req.body.email) {
-    erros.push("Please provide a email");
+    messages.push("Please provide a email");
   }
   if (req.body.email && req.body.email.length > 150) {
-    erros.push("Email must contain a maximum of 150 characters");
+    messages.push("Email must contain a maximum of 150 characters");
   }
 
   if (!req.body.name) {
-    erros.push("Please provide a name");
+    messages.push("Please provide a name");
   }
   if (req.body.name && req.body.name.length > 150) {
-    erros.push("Name must contain a maximum of 200 characters");
+    messages.push("Name must contain a maximum of 200 characters");
   }
 
   if (!req.body.password) {
-    erros.push("Please provide a password");
+    messages.push("Please provide a password");
   }
   if (req.body.password && req.body.password.length > 15) {
-    erros.push("Password must contain a maximum of 15 characters");
+    messages.push("Password must contain a maximum of 15 characters");
   }
   if (
     (req.body.password && !req.body.confirmpassword) ||
@@ -73,15 +107,15 @@ app.post("/register", (req, res, next) => {
       req.body.confirmpassword &&
       req.body.password !== req.body.confirmpassword)
   ) {
-    erros.push("Confirm password field must be equals to password");
+    messages.push("Confirm password field must be equals to password");
   }
 
   if (req.body.password && req.body.password.length < 6) {
-    erros.push("Password must contain at least 6 characters");
+    messages.push("Password must contain at least 6 characters");
   }
 
-  if (erros.length > 0) {
-    res.status(500).json({ erros: erros, valid: false });
+  if (messages.length > 0) {
+    res.status(200).json({ messages: messages, valid: false });
   } else {
     let pool = global.conn.request();
 
@@ -93,7 +127,8 @@ app.post("/register", (req, res, next) => {
       .query(query)
       .then(function (results) {
         if (results.recordset.length > 0) {
-          res.status(500).json({ erros: "Email already used!", valid: false });
+          messages.push("Email already used!");
+          res.status(200).json({ messages: messages, valid: false });
         } else {
           pool = global.conn.request();
           pool = conn.request();
@@ -104,26 +139,70 @@ app.post("/register", (req, res, next) => {
           query =
             "INSERT INTO K_Users ([U_Email], [U_Name], [U_Password], [U_CreationDate]) VALUES (@email, @name, @password, GETDATE())";
 
+          messages.push("Successful registration!");
+
           pool
             .query(query)
             .then(function (results) {
-              res
-                .status(200)
-                .json({ erros: "Successful registration!", valid: true });
+              res.status(200).json({ messages: messages, valid: true });
             })
             .catch(function (err) {
-              erros.push(
+              messages.push(
                 "Something happened, contact your system administrator!"
               );
-              res.status(500).json({ erros: erros, valid: false });
+              res.status(200).json({ messages: messages, valid: false });
             });
         }
       })
       .catch(function (err) {
-        erros.push("Something happened, contact your system administrator!");
-        res.status(500).json({ erros: erros, valid: false });
+        messages.push("Something happened, contact your system administrator!");
+        res.status(200).json({ messages: messages, valid: false });
       });
   }
+});
+
+//isAutorized
+app.get("/isAuthorized", verifyJWT, (req, res, next) => {
+  let messages = [];
+  messages.push("Authorized!");
+  res.json({ user: res.user, messages: messages, valid: true, auth: true });
+});
+
+//roll
+app.post("/roll", verifyJWT, (req, res, next) => {
+  let messages = [];
+  const slotsTypes = {
+    "🍒": [0, 40, 50],
+    "🍎": [0, 10, 20],
+    "🍌": [0, 5, 15],
+    "🍋": [0, 0, 3],
+  };
+  const reels = [
+    ["🍒", "🍋", "🍎", "🍋", "🍌", "🍌", "🍋", "🍋"],
+    ["🍋", "🍎", "🍋", "🍋", "🍒", "🍎", "🍌", "🍋"],
+    ["🍋", "🍎", "🍋", "🍎", "🍒", "🍋", "🍌", "🍋"],
+  ];
+  const spin = [
+    parseInt(Math.random() * 7),
+    parseInt(Math.random() * 7),
+    parseInt(Math.random() * 7),
+  ];
+
+  var slotType = reels[0][spin[0]],
+    matches = 1,
+    winnedCredits = 0;
+
+  if (slotType == reels[1][spin[1]]) {
+    matches++;
+
+    if (slotType == reels[2][spin[2]]) {
+      matches++;
+    }
+  }
+
+  winnedCredits = slotsTypes[slotType][matches - 1];
+
+  res.json({ winnedCredits: winnedCredits, spin: spin });
 });
 
 //logout
@@ -132,17 +211,27 @@ app.post("/logout", function (req, res) {
 });
 
 function verifyJWT(req, res, next) {
-  const token = req.headers["x-access-token"];
-  if (!token)
-    return res.status(401).json({ auth: false, message: "No token provided." });
+  let messages = [];
+
+  let token = req.headers["authorization"];
+  if (!token) {
+    messages.push("No token provided.");
+    return res
+      .status(401)
+      .json({ valid: false, messages: messages, auth: false });
+  }
+
+  token = token.replace("Bearer ", "");
 
   jwt.verify(token, process.env.SECRET, function (err, decoded) {
-    if (err)
-      return res
-        .status(500)
-        .json({ auth: false, message: "Failed to authenticate token." });
+    if (err) {
+      messages.push("Unauthorized.");
 
-    req.userId = decoded.id;
+      return res
+        .status(401)
+        .json({ valid: false, messages: messages, auth: false });
+    }
+    req.user = decoded;
     next();
   });
 }
