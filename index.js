@@ -24,8 +24,8 @@ sql
   .catch((err) => {});
 
 const corsOptions = {
-  origin: process.env.ORIGIN,
-  optionsSuccessStatus: 200,
+  origin: '*',
+  methods: ['GET','POST','DELETE','UPDATE','PUT','PATCH']
 };
 
 app.use(cors(corsOptions));
