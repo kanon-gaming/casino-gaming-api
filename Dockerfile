@@ -2,13 +2,13 @@ FROM node:18.4.0
 WORKDIR /app
 COPY . .
 
+ENV SECRET='dKq40DY#2QWj'
 ENV DOCKERIZE_VERSION v0.6.1
 ENV USER=sa
 ENV PASSWORD='abcDEF123#'
-ENV SERVER=kanongamingdatabase-service
+ENV SERVER=localhost
 ENV PORT=1433
 ENV DATABASE=kanongaming
-ENV ORIGIN='http://kanongamingapi.marioaugusto.com.br'
 
 RUN apt-get update -y && \ 
     apt-get install -y wget
